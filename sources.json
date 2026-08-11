@@ -1,0 +1,30 @@
+[
+  {
+    "type": "toyota",
+    "url": "https://www.toyota.co.il/agencies/toyota-danel#select"
+  },
+  {
+    "type": "toyota",
+    "url": "https://www.toyota.co.il/agencies/neomotors#select"
+  },
+  {
+    "type": "toyota",
+    "url": "https://www.toyota.co.il/agencies/toyota-nat#select"
+  },
+  {
+    "type": "toyota",
+    "url": "https://www.toyota.co.il/agencies/toyota-s#select"
+  },
+  {
+    "type": "trademobile",
+    "url": "https://trademobile.co.il/branch/%D7%92%D7%9C%D7%99%D7%9C%D7%95%D7%AA"
+  },
+  {
+    "type": "trademobile",
+    "url": "https://trademobile.co.il/branch/%D7%A4%D7%B4%D7%AA"
+  },
+  {
+    "type": "trademobile",
+    "url": "https://trademobile.co.il/branch/%D7%A0%D7%AA%D7%A0%D7%99%D7%94"
+  }
+]
