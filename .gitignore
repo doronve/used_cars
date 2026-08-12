@@ -1,3 +1,5 @@
 used_cars_*.html
+used_cars_*.json
+new_cars_*.html
 __pycache__/
 *.pyc

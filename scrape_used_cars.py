@@ -324,7 +324,13 @@ def scrape_source(source: dict):
 # HTML output
 # ---------------------------------------------------------------------------
 
-def build_html(cars, source_links, generated_at: datetime) -> str:
+def build_html(
+    cars,
+    source_links,
+    generated_at: datetime,
+    page_title: str = "רכבי יד שנייה - השוואת סוכנויות",
+    note: str = "",
+) -> str:
     rows = []
     for car in cars:
         esc = {k: html_lib.escape(str(v)) for k, v in car.items()}
@@ -362,16 +368,19 @@ def build_html(cars, source_links, generated_at: datetime) -> str:
         for label, url in source_links
     )
 
+    note_html = f'<div class="note">{html_lib.escape(note)}</div>' if note else ""
+
     return f"""<!DOCTYPE html>
 <html lang="he" dir="rtl">
 <head>
 <meta charset="UTF-8">
-<title>רכבי יד שנייה - השוואת סוכנויות</title>
+<title>{html_lib.escape(page_title)}</title>
 <style>
   body {{ font-family: Arial, Helvetica, sans-serif; margin: 24px; background: #f7f7f7; }}
   h1 {{ font-size: 20px; }}
   .meta {{ color: #555; margin-bottom: 16px; font-size: 14px; }}
   .meta a {{ margin-inline-end: 12px; }}
+  .note {{ color: #b8121f; font-weight: bold; margin-bottom: 6px; }}
   .controls {{ display: flex; align-items: center; gap: 8px; margin-bottom: 12px; font-size: 14px; }}
   .controls select {{ padding: 6px 10px; font-size: 14px; }}
   table {{ border-collapse: collapse; width: 100%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.15); }}
@@ -385,8 +394,9 @@ def build_html(cars, source_links, generated_at: datetime) -> str:
 </style>
 </head>
 <body>
-<h1>רכבי יד שנייה - השוואת סוכנויות</h1>
+<h1>{html_lib.escape(page_title)}</h1>
 <div class="meta">
+  {note_html}
   מקורות: {source_links_html}<br>
   נוצר בתאריך: {generated_at.strftime('%Y-%m-%d %H:%M:%S')}<br>
   מספר רכבים: <span id="visible-count">{len(cars)}</span> מתוך {len(cars)}
@@ -481,6 +491,34 @@ def build_html(cars, source_links, generated_at: datetime) -> str:
 """
 
 
+def car_key(car: dict) -> str:
+    """A stable identity for a listing, used to diff runs against each other."""
+    if car.get("link"):
+        return car["link"]
+    return "|".join([car.get("source", ""), car.get("name", ""), car.get("km", ""), car.get("year", ""), car.get("price", "")])
+
+
+def load_previous_snapshot():
+    """Returns (path, generated_at_str, cars) for the most recent prior run, or None."""
+    snapshot_files = sorted(OUTPUT_DIR.glob("used_cars_*.json"))
+    if not snapshot_files:
+        return None
+
+    latest = snapshot_files[-1]
+    with latest.open(encoding="utf-8") as f:
+        data = json.load(f)
+    return latest, data.get("generated_at", ""), data.get("cars", [])
+
+
+def save_snapshot(all_cars, generated_at: datetime, timestamp: str):
+    snapshot_path = OUTPUT_DIR / f"used_cars_{timestamp}.json"
+    snapshot_path.write_text(
+        json.dumps({"generated_at": generated_at.isoformat(), "cars": all_cars}, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    return snapshot_path
+
+
 def main():
     sources = load_sources()
 
@@ -503,14 +541,51 @@ def main():
     if not all_cars:
         raise SystemExit("No cars found across any source - check sources.json / page structure.")
 
-    generated_at = datetime.now()
-    output_html = build_html(all_cars, source_links, generated_at)
+    # Compare against the previous run *before* writing this run's snapshot,
+    # so "previous" doesn't end up pointing at the run currently in progress.
+    previous = load_previous_snapshot()
 
+    generated_at = datetime.now()
     timestamp = generated_at.strftime("%Y%m%d_%H%M%S")
+
+    output_html = build_html(all_cars, source_links, generated_at)
     output_path = OUTPUT_DIR / f"used_cars_{timestamp}.html"
     output_path.write_text(output_html, encoding="utf-8")
-
     print(f"Saved {len(all_cars)} cars total to {output_path}")
+
+    save_snapshot(all_cars, generated_at, timestamp)
+
+    if previous is None:
+        print("No previous run found - this run is now the baseline for future comparisons.")
+        return
+
+    _, previous_generated_at, previous_cars = previous
+    previous_keys = {car_key(c) for c in previous_cars}
+    new_cars = [c for c in all_cars if car_key(c) not in previous_keys]
+
+    try:
+        previous_label = datetime.fromisoformat(previous_generated_at).strftime("%Y-%m-%d %H:%M:%S")
+    except (TypeError, ValueError):
+        previous_label = previous_generated_at or "הריצה הקודמה"
+
+    print(f"New cars since previous run ({previous_label}): {len(new_cars)}")
+
+    if not new_cars:
+        return
+
+    new_cars_html = build_html(
+        new_cars,
+        source_links,
+        generated_at,
+        page_title=f"רכבים חדשים - מאז {previous_label}",
+        note=(
+            f"נמצאו {len(new_cars)} רכבים חדשים בהשוואה לריצה הקודמה "
+            f"מתאריך {previous_label} ({len(previous_cars)} רכבים)."
+        ),
+    )
+    new_cars_path = OUTPUT_DIR / f"new_cars_{timestamp}.html"
+    new_cars_path.write_text(new_cars_html, encoding="utf-8")
+    print(f"Saved new-cars report to {new_cars_path}")
 
 
 if __name__ == "__main__":

@@ -34,15 +34,34 @@ This reads the source list from [`sources.json`](sources.json), scrapes every
 configured site, and writes a timestamped output file in the same folder:
 
 ```
-used_cars_YYYYMMDD_HHMMSS.html
+used_cars_YYYYMMDD_HHMMSS.html   - full listing, this run
+used_cars_YYYYMMDD_HHMMSS.json   - machine-readable snapshot of this run (used for the next comparison)
+new_cars_YYYYMMDD_HHMMSS.html    - only cars not seen in the previous run (see below)
 ```
 
-Open it in any browser. It works fully offline (no server needed) — filtering
-by model/engine type and sorting by KM, year, or price all run client-side in
-plain JavaScript embedded in the file.
+Open the `.html` files in any browser. They work fully offline (no server
+needed) — filtering by model/engine type and sorting by KM, year, or price
+all run client-side in plain JavaScript embedded in the file.
 
 Note: fetching engine type requires an extra request per car (its detail
 page), so a full run against all configured sources can take a minute or two.
+
+### New-cars comparison
+
+Every run saves a `.json` snapshot of all scraped cars alongside the `.html`
+report. On each subsequent run, the script loads the *most recent* prior
+snapshot, diffs it against the current run (matched by listing URL), and
+writes `new_cars_<timestamp>.html` — a report containing only cars that
+weren't present last time, in the same filterable/sortable format as the
+main report.
+
+- The very first run has nothing to compare against, so it just saves its
+  snapshot as the baseline; no `new_cars_*.html` is produced that time.
+- If nothing changed since the last run, no `new_cars_*.html` is produced
+  either (the console output will say `New cars since previous run: 0`).
+- The `.json` snapshots are gitignored (they're just local run history) but
+  are needed on disk between runs for this comparison to work — don't delete
+  them if you want new-cars reports to keep working.
 
 ## Updating the source list
 
