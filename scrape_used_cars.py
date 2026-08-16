@@ -107,6 +107,8 @@ def parse_toyota_cars(html: str, source_label: str):
             continue
 
         model = clean_text(title_el.get_text())
+        if not model.startswith("טויוטה"):
+            model = f"טויוטה {model}"
         trim = clean_text(subtitle_el.get_text()) if subtitle_el else ""
         name = f"{model} {trim}".strip()
 
