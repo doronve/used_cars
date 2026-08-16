@@ -63,9 +63,24 @@ def get_title(html: str) -> str:
 # ---------------------------------------------------------------------------
 
 def resolve_toyota_source(page_url: str):
-    """Fetch a Toyota agency page and resolve the real listings URL + a label."""
+    """Resolve a Toyota source URL to (listing_url, label, page_url, listing_html).
+
+    Accepts either a toyota.co.il agency page (which embeds the real listings
+    in a #select iframe) or a toyota-select.co.il agency page directly (no
+    iframe hop needed - it *is* the listings page). listing_html is the
+    already-fetched listings HTML when available, so callers don't need to
+    fetch it a second time.
+    """
     page_url = page_url.split("#")[0]
     page_html = fetch_html(page_url)
+    slug = urlsplit(page_url).path.rstrip("/").rsplit("/", 1)[-1]
+
+    if urlsplit(page_url).netloc == "toyota-select.co.il":
+        title = get_title(page_html)
+        label_match = re.search(r"סוכנות מורשית טויוטה:\s*(.+?)\s*\|", title)
+        agency_name = label_match.group(1) if label_match else slug
+        label = f"טויוטה {agency_name} (Toyota Select)"
+        return page_url, label, page_url, page_html
 
     soup = BeautifulSoup(page_html, "html.parser")
     iframe = soup.find(id="select")
@@ -75,11 +90,10 @@ def resolve_toyota_source(page_url: str):
 
     title = get_title(page_html)
     label_match = re.search(r"סוכנויות מורשות:\s*(.+?)\s*-\s*טויוטה ישראל", title)
-    slug = urlsplit(page_url).path.rstrip("/").rsplit("/", 1)[-1]
     agency_name = label_match.group(1) if label_match else slug
     label = f"טויוטה {agency_name} (Toyota Select)"
 
-    return listing_url, label, page_url
+    return listing_url, label, page_url, None
 
 
 def parse_toyota_cars(html: str, source_label: str):
@@ -305,8 +319,10 @@ def scrape_source(source: dict):
     url = source["url"]
 
     if source_type == "toyota":
-        listing_url, label, page_url = resolve_toyota_source(url)
-        cars = parse_toyota_cars(fetch_html(listing_url), label)
+        listing_url, label, page_url, listing_html = resolve_toyota_source(url)
+        if listing_html is None:
+            listing_html = fetch_html(listing_url)
+        cars = parse_toyota_cars(listing_html, label)
         enrich_engine_types(cars, fetch_toyota_engine_type)
         return label, page_url, cars
 
@@ -340,7 +356,7 @@ def build_html(
             else ""
         )
         rows.append(
-            f'<tr data-model="{esc["model_key"]}" data-engine="{esc["engine_type"]}">'
+            f'<tr data-model="{esc["model_key"]}" data-engine="{esc["engine_type"]}" data-price="{car["price_num"]}">'
             f"<td>{esc['source']}</td>"
             f"<td>{esc['name']}</td>"
             f"<td data-sort=\"{car['km_num']}\">{esc['km']}</td>"
@@ -363,6 +379,10 @@ def build_html(
         f'<option value="{html_lib.escape(e)}">{html_lib.escape(e)}</option>' for e in engine_types
     )
 
+    prices = [car["price_num"] for car in cars if car["price_num"]]
+    min_price = min(prices) if prices else 0
+    max_price = max(prices) if prices else 0
+
     source_links_html = " ".join(
         f'<a href="{html_lib.escape(url)}" target="_blank" rel="noopener noreferrer">{html_lib.escape(label)}</a>'
         for label, url in source_links
@@ -381,8 +401,10 @@ def build_html(
   .meta {{ color: #555; margin-bottom: 16px; font-size: 14px; }}
   .meta a {{ margin-inline-end: 12px; }}
   .note {{ color: #b8121f; font-weight: bold; margin-bottom: 6px; }}
-  .controls {{ display: flex; align-items: center; gap: 8px; margin-bottom: 12px; font-size: 14px; }}
+  .controls {{ display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; font-size: 14px; }}
   .controls select {{ padding: 6px 10px; font-size: 14px; }}
+  .controls input[type="number"] {{ width: 100px; padding: 6px 10px; font-size: 14px; }}
+  .controls .price-range {{ display: flex; align-items: center; gap: 6px; }}
   table {{ border-collapse: collapse; width: 100%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.15); }}
   th, td {{ border: 1px solid #ddd; padding: 10px 12px; text-align: right; font-size: 14px; }}
   th {{ background: #b8121f; color: #fff; }}
@@ -412,6 +434,12 @@ def build_html(
     <option value="">כל סוגי המנוע</option>
     {engine_options}
   </select>
+  <div class="price-range">
+    <label for="price-min">מחיר מ-</label>
+    <input type="number" id="price-min" min="{min_price}" max="{max_price}" step="500" placeholder="{min_price}">
+    <label for="price-max">עד</label>
+    <input type="number" id="price-max" min="{min_price}" max="{max_price}" step="500" placeholder="{max_price}">
+  </div>
 </div>
 <table id="cars-table">
   <thead>
@@ -437,6 +465,8 @@ def build_html(
   const tbody = table.querySelector('tbody');
   const modelFilter = document.getElementById('model-filter');
   const engineFilter = document.getElementById('engine-filter');
+  const priceMinInput = document.getElementById('price-min');
+  const priceMaxInput = document.getElementById('price-max');
   const visibleCount = document.getElementById('visible-count');
   const sortableHeaders = table.querySelectorAll('th.sortable');
   let currentSort = {{ col: null, dir: 1 }};
@@ -444,11 +474,16 @@ def build_html(
   function applyFilter() {{
     const selectedModel = modelFilter.value;
     const selectedEngine = engineFilter.value;
+    const priceMin = priceMinInput.value !== '' ? parseFloat(priceMinInput.value) : null;
+    const priceMax = priceMaxInput.value !== '' ? parseFloat(priceMaxInput.value) : null;
     let count = 0;
     tbody.querySelectorAll('tr').forEach(function(row) {{
       const modelMatch = !selectedModel || row.dataset.model === selectedModel;
       const engineMatch = !selectedEngine || row.dataset.engine === selectedEngine;
-      const match = modelMatch && engineMatch;
+      const price = parseFloat(row.dataset.price) || 0;
+      const priceMinMatch = priceMin === null || price >= priceMin;
+      const priceMaxMatch = priceMax === null || price <= priceMax;
+      const match = modelMatch && engineMatch && priceMinMatch && priceMaxMatch;
       row.style.display = match ? '' : 'none';
       if (match) count++;
     }});
@@ -479,6 +514,8 @@ def build_html(
 
   modelFilter.addEventListener('change', applyFilter);
   engineFilter.addEventListener('change', applyFilter);
+  priceMinInput.addEventListener('input', applyFilter);
+  priceMaxInput.addEventListener('input', applyFilter);
   sortableHeaders.forEach(function(th) {{
     th.addEventListener('click', function() {{
       applySort(parseInt(th.dataset.col, 10));

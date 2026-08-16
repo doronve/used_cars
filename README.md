@@ -40,8 +40,10 @@ new_cars_YYYYMMDD_HHMMSS.html    - only cars not seen in the previous run (see b
 ```
 
 Open the `.html` files in any browser. They work fully offline (no server
-needed) — filtering by model/engine type and sorting by KM, year, or price
-all run client-side in plain JavaScript embedded in the file.
+needed) — filtering by model/engine type/price range and sorting by KM,
+year, or price all run client-side in plain JavaScript embedded in the
+file. The price filter's min/max inputs are pre-filled with the actual
+lowest/highest price found in that run.
 
 Note: fetching engine type requires an extra request per car (its detail
 page), so a full run against all configured sources can take a minute or two.
@@ -69,6 +71,14 @@ Edit [`sources.json`](sources.json). It's a JSON array where each entry is:
 
 ```json
 { "type": "toyota", "url": "https://www.toyota.co.il/agencies/<agency-slug>#select" }
+```
+
+A `"toyota"` entry also accepts a direct `toyota-select.co.il` agency URL
+(some agencies are linked straight there instead of through toyota.co.il),
+e.g.:
+
+```json
+{ "type": "toyota", "url": "https://toyota-select.co.il/agencies/<agency-slug>/" }
 ```
 
 or
